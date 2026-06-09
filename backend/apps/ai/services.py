@@ -119,6 +119,10 @@ def enrich_payload(mode: str, payload: dict[str, Any]) -> dict[str, Any]:
         return payload
 
     api_key = getattr(settings, "PEXELS_API_KEY", "") or ""
+    # Pexels блокирует российские IP — на проде запросы и картинки идут через
+    # обратный прокси вне РФ (см. PEXELS_API_BASE / PEXELS_IMAGE_PROXY).
+    api_base = getattr(settings, "PEXELS_API_BASE", "") or None
+    img_proxy = getattr(settings, "PEXELS_IMAGE_PROXY", "") or None
     refs: list[dict[str, Any]] = []
 
     # moodboard_query иногда приходит пустым — тогда ищем по теме, а не уходим
@@ -127,12 +131,18 @@ def enrich_payload(mode: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     if api_key and search_query:
         # Первый прогон — с цветовым фильтром.
-        candidates = pexels_search(query=search_query, api_key=api_key, color=color or None)
+        candidates = pexels_search(
+            query=search_query, api_key=api_key, color=color or None,
+            base_url=api_base, image_proxy=img_proxy,
+        )
         chosen = pick_diverse(candidates, count=6)
 
         # Если на цвет не хватило 6 уникальных кадров — добираем без фильтра.
         if len(chosen) < 6:
-            extra = pexels_search(query=search_query, api_key=api_key, color=None)
+            extra = pexels_search(
+                query=search_query, api_key=api_key, color=None,
+                base_url=api_base, image_proxy=img_proxy,
+            )
             seen = {c.get("id") for c in chosen}
             for p in extra:
                 if len(chosen) >= 6:

@@ -15,7 +15,17 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://api.pexels.com/v1/search"
+DEFAULT_API_BASE = "https://api.pexels.com/v1"
+PEXELS_IMG_HOST = "https://images.pexels.com"
+
+
+def _rewrite_img(url: str | None, image_proxy: str | None) -> str | None:
+    """Pexels-картинки гео-заблокированы в РФ. Если задан image_proxy
+    (обратный прокси вне РФ), подменяем хост images.pexels.com на него,
+    чтобы картинки грузились в браузере у российских пользователей."""
+    if url and image_proxy:
+        return url.replace(PEXELS_IMG_HOST, image_proxy.rstrip("/"))
+    return url
 
 
 def _normalize_color(color: str | None) -> str | None:
@@ -41,6 +51,8 @@ def search_photos(
     locale: str = "ru-RU",
     per_page: int = 80,
     timeout: float = 12.0,
+    base_url: str | None = None,
+    image_proxy: str | None = None,
 ) -> list[dict[str, Any]]:
     if not api_key:
         logger.warning("Pexels API key missing")
@@ -48,6 +60,7 @@ def search_photos(
     if not query or not query.strip():
         return []
 
+    search_url = (base_url or DEFAULT_API_BASE).rstrip("/") + "/search"
     params: dict[str, str | int] = {
         "query": query.strip(),
         "per_page": min(80, max(1, per_page)),
@@ -61,7 +74,7 @@ def search_photos(
 
     try:
         resp = requests.get(
-            SEARCH_URL,
+            search_url,
             params=params,
             headers={"Authorization": api_key, "Accept": "application/json"},
             timeout=timeout,
@@ -86,8 +99,8 @@ def search_photos(
         out.append({
             "id": p.get("id"),
             "page_url": p.get("url"),
-            "image_url": src.get("large") or src.get("large2x") or src.get("medium"),
-            "image_url_small": src.get("medium") or src.get("small") or src.get("tiny"),
+            "image_url": _rewrite_img(src.get("large") or src.get("large2x") or src.get("medium"), image_proxy),
+            "image_url_small": _rewrite_img(src.get("medium") or src.get("small") or src.get("tiny"), image_proxy),
             "alt": p.get("alt") or "",
             "avg_color": p.get("avg_color"),
             "photographer": p.get("photographer"),

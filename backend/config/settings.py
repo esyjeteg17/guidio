@@ -129,6 +129,10 @@ DEEPSEEK_BASE_URL = config("DEEPSEEK_BASE_URL", default="https://api.deepseek.co
 DEEPSEEK_MODEL = config("DEEPSEEK_MODEL", default="deepseek-reasoner")
 
 PEXELS_API_KEY = config("PEXELS_API_KEY", default="")
+# Pexels блокирует российские IP. На проде запросы к API и сами картинки
+# проксируются через обратный прокси вне РФ. Пусто = ходим напрямую.
+PEXELS_API_BASE = config("PEXELS_API_BASE", default="")
+PEXELS_IMAGE_PROXY = config("PEXELS_IMAGE_PROXY", default="")
 
 SONIOX_API_KEY = config("SONIOX_API_KEY", default="")
 
