@@ -1,9 +1,7 @@
 import hashlib
 import json
 import logging
-import re
 from typing import Any
-from urllib.parse import quote
 
 from django.conf import settings
 
@@ -15,23 +13,12 @@ from .prompts import SYSTEM_PROMPTS, is_structured
 logger = logging.getLogger(__name__)
 
 
-def _image_for_query(query: str) -> str:
+def _fallback_image(query: str, i: int = 0) -> str:
+    """Стабильный URL-заглушка по picsum (надёжнее loremflickr, который часто 500-ит).
+
+    Индекс `i` гарантирует, что 6 картинок мудборда не совпадут между собой.
     """
-    Вернуть стабильный URL картинки по ключевым словам.
-
-    Источник — loremflickr.com (keyword-based, без ключа).
-    Ключевые слова передаются в path без URL-кодирования запятых.
-    """
-    q = (query or "design").strip()
-    # Оставляем только Latin символы и заменяем пробелы на запятые.
-    # quote с safe="," не кодирует запятые, что требуется loremflickr.
-    keywords = re.sub(r"[^a-zA-Z0-9, ]", "", q).strip().replace(" ", ",") or "design"
-    seed = hashlib.md5(q.encode("utf-8")).hexdigest()[:10]
-    return f"https://loremflickr.com/800/600/{quote(keywords, safe=',')}?lock={seed}"
-
-
-def _fallback_image(query: str) -> str:
-    seed = hashlib.md5((query or "design").encode("utf-8")).hexdigest()[:10]
+    seed = hashlib.md5(f"{(query or 'design')}:{i}".encode("utf-8")).hexdigest()[:12]
     return f"https://picsum.photos/seed/{seed}/800/600"
 
 
@@ -100,14 +87,13 @@ def _fallback_references(query: str, count: int = 6) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
     base = (query or "design").strip()
     for i in range(count):
-        seed = hashlib.md5(f"{base}:{i}".encode("utf-8")).hexdigest()[:10]
-        kw = re.sub(r"[^a-zA-Z0-9, ]", "", base).strip().replace(" ", ",") or "design"
+        url = _fallback_image(base, i)
         refs.append({
             "title": "",
             "description": "",
-            "image_url": f"https://loremflickr.com/800/600/{quote(kw, safe=',')}?lock={seed}",
-            "image_fallback": f"https://picsum.photos/seed/{seed}/800/600",
-            "source": "loremflickr",
+            "image_url": url,
+            "image_fallback": url,
+            "source": "picsum",
         })
     return refs
 
@@ -135,14 +121,18 @@ def enrich_payload(mode: str, payload: dict[str, Any]) -> dict[str, Any]:
     api_key = getattr(settings, "PEXELS_API_KEY", "") or ""
     refs: list[dict[str, Any]] = []
 
-    if api_key and query:
+    # moodboard_query иногда приходит пустым — тогда ищем по теме, а не уходим
+    # сразу в заглушки.
+    search_query = query or theme
+
+    if api_key and search_query:
         # Первый прогон — с цветовым фильтром.
-        candidates = pexels_search(query=query, api_key=api_key, color=color or None)
+        candidates = pexels_search(query=search_query, api_key=api_key, color=color or None)
         chosen = pick_diverse(candidates, count=6)
 
         # Если на цвет не хватило 6 уникальных кадров — добираем без фильтра.
         if len(chosen) < 6:
-            extra = pexels_search(query=query, api_key=api_key, color=None)
+            extra = pexels_search(query=search_query, api_key=api_key, color=None)
             seen = {c.get("id") for c in chosen}
             for p in extra:
                 if len(chosen) >= 6:
@@ -154,15 +144,15 @@ def enrich_payload(mode: str, payload: dict[str, Any]) -> dict[str, Any]:
 
         refs = _photos_to_references(chosen)
         payload["pexels_meta"] = {
-            "query": query,
+            "query": search_query,
             "color": color or None,
             "found": len(candidates),
             "selected": len(chosen),
         }
 
     if not refs:
-        # Сети нет / ключа нет / Pexels пусто — отдаём loremflickr как раньше.
-        refs = _fallback_references(query or theme or "design")
+        # Сети нет / ключа нет / Pexels пусто — отдаём picsum-заглушки.
+        refs = _fallback_references(search_query or "design")
 
     payload["references"] = refs
     return payload

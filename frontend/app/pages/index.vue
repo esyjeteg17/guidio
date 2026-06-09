@@ -213,11 +213,11 @@ const steps = [
 		<!-- FEATURES -->
 		<section id="features" class="py-20">
 			<div class="max-w-[1200px] mx-auto px-6">
-				<div class="max-w-2xl mx-auto text-center mb-14">
+				<div class="max-w-3xl mx-auto text-center mb-14">
 					<h2
 						class="font-display text-3xl sm:text-[40px] font-semibold text-ink-900 leading-tight"
 					>
-						Все, что помогает быстрее найти<br />визуальное направление
+						Все, что помогает быстрее найти визуальное направление
 					</h2>
 					<p class="mt-4 text-ink-500">
 						Сервис объединяет подбор шрифтов, фильтры, мудборды, командную

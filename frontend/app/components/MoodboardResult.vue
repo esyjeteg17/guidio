@@ -66,13 +66,15 @@ function refImageSrc(ref: Reference): string | undefined {
   return ref.image_url || ref.image_fallback
 }
 
-function onImgError(e: Event, ref: Reference) {
+function onImgError(e: Event, ref: Reference, i: number) {
   const el = e.target as HTMLImageElement
   if (ref.image_fallback && el.src !== ref.image_fallback) {
     el.src = ref.image_fallback
     return
   }
-  const seed = encodeURIComponent((ref.search_query || ref.title || 'design').slice(0, 32))
+  // Индекс в seed — чтобы шесть заглушек не схлопнулись в одну картинку.
+  const base = (ref.search_query || ref.title || 'design').slice(0, 32)
+  const seed = encodeURIComponent(`${base}-${i}`)
   const f = `https://picsum.photos/seed/${seed}/800/600`
   if (el.src !== f) el.src = f
 }
@@ -137,7 +139,7 @@ function isDark(hex: string): boolean {
             class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             loading="lazy"
             referrerpolicy="no-referrer"
-            @error="onImgError($event, r)"
+            @error="onImgError($event, r, i)"
           />
         </article>
       </div>
