@@ -23,6 +23,7 @@ interface SummaryPayload {
 	mood?: string[]
 	key_principles?: string[]
 	mockup?: {
+		brand?: string
 		title?: string
 		subtitle?: string
 		body?: string
@@ -238,6 +239,12 @@ const tiles = computed<{ title: string; text: string }[]>(() => {
 		.slice(0, 3)
 		.map(m => ({ title: m, text: '' }))
 })
+
+/** Название бренда для логотипа макета (генерируется под тему проекта). */
+const brandName = computed(
+	() => props.summary?.mockup?.brand?.trim() || props.summary?.direction || 'Проект',
+)
+const brandInitial = computed(() => (brandName.value.trim()[0] || 'A').toUpperCase())
 
 /** Цвет фона/текста для i-й плитки (циклически: surface → secondary → accent). */
 function tileStyle(i: number) {
@@ -821,29 +828,20 @@ async function exportPdf() {
 						<div class="flex items-center justify-between gap-3 mb-6">
 							<div class="flex items-center gap-2 min-w-0">
 								<span
-									class="inline-flex items-center justify-center h-8 w-8 rounded-xl shrink-0"
+									class="inline-flex items-center justify-center h-8 w-8 rounded-xl shrink-0 text-sm"
 									:style="{
 										background: colors.primary,
 										color: colors.onPrimary,
+										fontFamily: headingStack,
+										fontWeight: 700,
 									}"
 								>
-									<svg
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2.5"
-									>
-										<path
-											d="M12 3 13.5 9.5 20 11 13.5 12.5 12 19 10.5 12.5 4 11 10.5 9.5Z"
-										/>
-									</svg>
+									{{ brandInitial }}
 								</span>
 								<span
-									:style="{ fontFamily: bodyStack, fontWeight: 600 }"
-									class="text-sm truncate"
-									>{{ props.summary.direction || 'Проект' }}</span
+									:style="{ fontFamily: headingStack, fontWeight: 700 }"
+									class="text-base truncate"
+									>{{ brandName }}</span
 								>
 							</div>
 							<span
