@@ -168,6 +168,24 @@ def enrich_payload(mode: str, payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _select_recommended_pair(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Выбрать из всех подобранных в проекте пар ту, что показать в сводке.
+
+    `entries` отсортированы хронологически (старые → новые).
+    Приоритет: последняя лайкнутая → последняя без дизлайка → последняя вообще.
+    Пусто (пользователь не подбирал шрифты) → None, тогда LLM собирает под бриф.
+    """
+    if not entries:
+        return None
+    liked = [e for e in entries if e.get("reaction") == "like"]
+    if liked:
+        return liked[-1]
+    non_disliked = [e for e in entries if e.get("reaction") != "dislike"]
+    if non_disliked:
+        return non_disliked[-1]
+    return entries[-1]
+
+
 def summarise_project(project) -> dict[str, Any]:
     """
     Собрать финальные рекомендации по проекту: лучшая шрифтовая пара,
@@ -175,7 +193,8 @@ def summarise_project(project) -> dict[str, Any]:
     """
     sessions = project.chat_sessions.all().prefetch_related("messages").order_by("created_at")
 
-    font_pairs: list[dict[str, Any]] = []
+    font_pairs: list[dict[str, Any]] = []        # компактный список для контекста LLM
+    font_pair_specs: list[dict[str, Any]] = []   # полные heading/body, хронологически
     moodboards: list[dict[str, Any]] = []
 
     for s in sessions:
@@ -186,13 +205,26 @@ def summarise_project(project) -> dict[str, Any]:
             reaction = msg.reaction  # "like" | "dislike" | None
             if s.mode == "fonts" and p.get("pairs"):
                 for pair in p.get("pairs") or []:
+                    if not isinstance(pair, dict):
+                        continue
+                    heading = pair.get("heading") or {}
+                    body = pair.get("body") or {}
                     font_pairs.append({
                         "name": pair.get("name"),
-                        "heading": (pair.get("heading") or {}).get("family"),
-                        "body": (pair.get("body") or {}).get("family"),
+                        "heading": heading.get("family"),
+                        "body": body.get("family"),
                         "mood": pair.get("mood"),
                         "reaction": reaction,
                     })
+                    # Полные спеки только для законченных пар — из них выбираем,
+                    # что показать в сводке.
+                    if heading.get("family") and body.get("family"):
+                        font_pair_specs.append({
+                            "reaction": reaction,
+                            "name": pair.get("name"),
+                            "heading": heading,
+                            "body": body,
+                        })
             elif s.mode in {"moodboard", "colors"}:
                 moodboards.append({
                     "theme": p.get("theme"),
@@ -206,16 +238,25 @@ def summarise_project(project) -> dict[str, Any]:
                     "reaction": reaction,
                 })
 
-    context_payload = {
+    # Какую пару показать в сводке: лайкнутую → иначе последнюю подобранную.
+    # Дефолтную пару LLM придумывает только если пользователь шрифты не подбирал.
+    chosen_pair = _select_recommended_pair(font_pair_specs)
+
+    context_payload: dict[str, Any] = {
         "project": {
             "name": project.name,
             "description": project.description,
             "brief": project.brief,
             "kind": project.kind,
         },
-        "font_pairs": font_pairs[:8],
-        "moodboards": moodboards[:4],
+        "font_pairs": font_pairs[-8:],
+        "moodboards": moodboards[-4:],
     }
+    if chosen_pair:
+        context_payload["chosen_fonts"] = {
+            "heading": (chosen_pair.get("heading") or {}).get("family"),
+            "body": (chosen_pair.get("body") or {}).get("family"),
+        }
 
     user_msg = (
         "Сведи результаты проекта в финальные рекомендации по JSON-схеме.\n"
@@ -234,6 +275,16 @@ def summarise_project(project) -> dict[str, Any]:
     except DeepSeekError as exc:
         logger.exception("DeepSeek project summary failed")
         raise
+
+    # Жёстко проставляем подобранную пользователю пару (LLM могла «дрейфнуть»).
+    if chosen_pair and isinstance(payload, dict):
+        rf = payload.get("recommended_fonts")
+        rationale = rf.get("rationale") if isinstance(rf, dict) else None
+        payload["recommended_fonts"] = {
+            "heading": chosen_pair.get("heading") or {},
+            "body": chosen_pair.get("body") or {},
+            "rationale": rationale or "Пара взята из вашего подбора в этом проекте.",
+        }
 
     from django.utils import timezone
     project.summary_payload = payload

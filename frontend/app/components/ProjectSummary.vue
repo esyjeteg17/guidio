@@ -114,6 +114,14 @@ function hexToRgb(hex: string): [number, number, number] | null {
 	if ([r, g, b].some(Number.isNaN)) return null
 	return [r, g, b]
 }
+/** Смешать два цвета (t=0 → a, t=1 → b). Для мягких подложек-surface. */
+function mix(a: string, b: string, t: number): string {
+	const ra = hexToRgb(a)
+	const rb = hexToRgb(b)
+	if (!ra || !rb) return a
+	const m = ra.map((v, i) => Math.round(v + (rb[i] - v) * t))
+	return '#' + m.map(v => v.toString(16).padStart(2, '0')).join('')
+}
 function relLuminance(hex: string): number {
 	const rgb = hexToRgb(hex)
 	if (!rgb) return 0
@@ -166,9 +174,53 @@ const colors = computed(() => {
 		paletteColor('text', ''),
 	]
 	const primary = pickReadable(bg, headingCandidates, 3.0) // AA Large для крупного title
-	const accent = paletteColor('accent', paletteColor('secondary', '#4f5dff'))
-	const neutral = paletteColor('neutral', '#eef0f4')
-	return { background: bg, text, primary, accent, neutral }
+
+	// Подбираем два РАЗНЫХ выразительных цвета (accent / secondary) из палитры,
+	// не совпадающих с фоном и заголовком — чтобы в макете работал не один цвет.
+	const used = new Set([bg.toLowerCase(), primary.toLowerCase()])
+	const distinct = (roles: string[]): string => {
+		for (const r of roles) {
+			const h = paletteColor(r, '')
+			if (h && !used.has(h.toLowerCase())) {
+				used.add(h.toLowerCase())
+				return h
+			}
+		}
+		for (const c of palette.value) {
+			const h = c.hex
+			if (h && !used.has(h.toLowerCase())) {
+				used.add(h.toLowerCase())
+				return h
+			}
+		}
+		return primary
+	}
+	const accent = distinct(['accent', 'secondary', 'primary'])
+	const secondary = distinct(['secondary', 'accent', 'neutral'])
+
+	// Мягкая подложка для карточек: нейтральный цвет, если он заметно отличается
+	// от фона, иначе лёгкий тон фона в сторону текста.
+	const neutralRaw = paletteColor('neutral', '')
+	const surface =
+		neutralRaw && contrastRatio(neutralRaw, bg) >= 1.12
+			? neutralRaw
+			: mix(bg, text, 0.06)
+
+	// Читаемый текст поверх каждого «цветного» блока (CTA/кнопки/плашки).
+	const onColor = (c: string) => pickReadable(c, [bg, '#FFFFFF', '#0E1018'], 3.5)
+	return {
+		background: bg,
+		text,
+		primary,
+		onPrimary: onColor(primary),
+		accent,
+		onAccent: onColor(accent),
+		secondary,
+		onSecondary: onColor(secondary),
+		surface,
+		onSurface: pickReadable(surface, [text, '#0E1018', '#FFFFFF']),
+		neutral: neutralRaw || '#eef0f4',
+	}
 })
 
 function formatDate(s: string | null) {
@@ -739,31 +791,44 @@ async function exportPdf() {
 					/>
 
 					<div class="p-6 sm:p-10">
-						<div class="flex items-center gap-2 mb-6">
-							<span
-								class="inline-flex items-center justify-center h-8 w-8 rounded-xl"
-								:style="{
-									background: colors.primary,
-									color: colors.background,
-								}"
-							>
-								<svg
-									width="16"
-									height="16"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2.5"
+						<div class="flex items-center justify-between gap-3 mb-6">
+							<div class="flex items-center gap-2 min-w-0">
+								<span
+									class="inline-flex items-center justify-center h-8 w-8 rounded-xl shrink-0"
+									:style="{
+										background: colors.primary,
+										color: colors.onPrimary,
+									}"
 								>
-									<path
-										d="M12 3 13.5 9.5 20 11 13.5 12.5 12 19 10.5 12.5 4 11 10.5 9.5Z"
-									/>
-								</svg>
-							</span>
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+									>
+										<path
+											d="M12 3 13.5 9.5 20 11 13.5 12.5 12 19 10.5 12.5 4 11 10.5 9.5Z"
+										/>
+									</svg>
+								</span>
+								<span
+									:style="{ fontFamily: bodyStack, fontWeight: 600 }"
+									class="text-sm truncate"
+									>{{ props.summary.direction || 'Проект' }}</span
+								>
+							</div>
 							<span
-								:style="{ fontFamily: bodyStack, fontWeight: 600 }"
-								class="text-sm"
-								>{{ props.summary.direction || 'Проект' }}</span
+								v-if="props.summary.mood?.length"
+								:style="{
+									fontFamily: bodyStack,
+									fontWeight: 600,
+									background: colors.accent,
+									color: colors.onAccent,
+								}"
+								class="text-[11px] px-2.5 py-1 rounded-full shrink-0"
+								>{{ props.summary.mood[0] }}</span
 							>
 						</div>
 
@@ -809,7 +874,7 @@ async function exportPdf() {
 									fontFamily: bodyStack,
 									fontWeight: 500,
 									background: colors.primary,
-									color: colors.background,
+									color: colors.onPrimary,
 								}"
 								class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm cursor-default"
 							>
@@ -829,8 +894,8 @@ async function exportPdf() {
 								:style="{
 									fontFamily: bodyStack,
 									fontWeight: 500,
-									color: colors.text,
-									background: colors.neutral,
+									color: colors.onAccent,
+									background: colors.accent,
 								}"
 								class="inline-flex items-center px-5 py-2.5 rounded-full text-sm cursor-default"
 							>
@@ -838,13 +903,69 @@ async function exportPdf() {
 							</button>
 						</div>
 
-						<!-- Tiny composition dots using accent colors -->
-						<div class="mt-10 flex items-center gap-2">
+						<!-- Фичи-плитки: задействуют surface / secondary / accent палитры -->
+						<div class="mt-9 grid grid-cols-3 gap-2.5">
+							<div
+								class="rounded-xl px-3.5 py-3"
+								:style="{ background: colors.surface, color: colors.onSurface }"
+							>
+								<div
+									:style="{ fontFamily: headingStack, fontWeight: 600 }"
+									class="text-lg leading-none"
+								>
+									Aa
+								</div>
+								<div
+									:style="{ fontFamily: bodyStack }"
+									class="text-[11px] mt-1.5 truncate"
+								>
+									{{ props.summary.recommended_fonts?.heading?.family || 'Заголовки' }}
+								</div>
+							</div>
+							<div
+								class="rounded-xl px-3.5 py-3"
+								:style="{ background: colors.secondary, color: colors.onSecondary }"
+							>
+								<div
+									:style="{ fontFamily: bodyStack, fontWeight: 700 }"
+									class="text-lg leading-none"
+								>
+									{{ palette.length }}
+								</div>
+								<div
+									:style="{ fontFamily: bodyStack }"
+									class="text-[11px] mt-1.5"
+								>
+									цвета в системе
+								</div>
+							</div>
+							<div
+								class="rounded-xl px-3.5 py-3"
+								:style="{ background: colors.accent, color: colors.onAccent }"
+							>
+								<div
+									:style="{ fontFamily: bodyStack, fontWeight: 600 }"
+									class="text-sm leading-tight truncate"
+								>
+									{{ props.summary.mood?.[1] || props.summary.mood?.[0] || 'Акцент' }}
+								</div>
+								<div
+									:style="{ fontFamily: bodyStack }"
+									class="text-[11px] mt-1.5"
+								>
+									характер
+								</div>
+							</div>
+						</div>
+
+						<!-- Палитра «в деле» — все цвета как сплошные плитки -->
+						<div class="mt-2.5 flex items-center gap-1.5">
 							<span
-								v-for="c in palette.slice(0, 5)"
-								:key="`dot-${c.hex}`"
-								class="h-2 w-2 rounded-full"
+								v-for="c in palette.slice(0, 6)"
+								:key="`tile-${c.hex}`"
+								class="h-6 flex-1 rounded-md"
 								:style="{ background: c.hex }"
+								:title="c.name || c.hex"
 							/>
 						</div>
 					</div>
