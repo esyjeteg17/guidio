@@ -27,6 +27,7 @@ interface SummaryPayload {
 		subtitle?: string
 		body?: string
 		cta?: string
+		features?: Array<{ title?: string; text?: string }>
 	}
 	next_steps?: string[]
 }
@@ -222,6 +223,32 @@ const colors = computed(() => {
 		neutral: neutralRaw || '#eef0f4',
 	}
 })
+
+/** Живые мини-блоки для макета (как карточки на сайте под проект).
+ *  Берём сгенерированные features; для старых сводок без них — мягкий
+ *  фолбэк из настроения, чтобы вёрстка не ломалась. */
+const tiles = computed<{ title: string; text: string }[]>(() => {
+	const feats = (props.summary?.mockup?.features || [])
+		.filter(f => f && (f.title || f.text))
+		.slice(0, 3)
+		.map(f => ({ title: f.title || '', text: f.text || '' }))
+	if (feats.length) return feats
+	// Фолбэк для старых сводок: настроение как короткие подписи.
+	return (props.summary?.mood || [])
+		.slice(0, 3)
+		.map(m => ({ title: m, text: '' }))
+})
+
+/** Цвет фона/текста для i-й плитки (циклически: surface → secondary → accent). */
+function tileStyle(i: number) {
+	const c = colors.value
+	const sets = [
+		{ background: c.surface, color: c.onSurface },
+		{ background: c.secondary, color: c.onSecondary },
+		{ background: c.accent, color: c.onAccent },
+	]
+	return sets[i % sets.length]
+}
 
 function formatDate(s: string | null) {
 	if (!s) return ''
@@ -903,57 +930,30 @@ async function exportPdf() {
 							</button>
 						</div>
 
-						<!-- Фичи-плитки: задействуют surface / secondary / accent палитры -->
-						<div class="mt-9 grid grid-cols-3 gap-2.5">
+						<!-- Фичи-плитки: живой контент под проект, цвета из палитры -->
+						<div
+							v-if="tiles.length"
+							class="mt-9 grid gap-2.5"
+							:class="tiles.length === 2 ? 'grid-cols-2' : 'grid-cols-3'"
+						>
 							<div
+								v-for="(t, i) in tiles"
+								:key="`tile-${i}`"
 								class="rounded-xl px-3.5 py-3"
-								:style="{ background: colors.surface, color: colors.onSurface }"
-							>
-								<div
-									:style="{ fontFamily: headingStack, fontWeight: 600 }"
-									class="text-lg leading-none"
-								>
-									Aa
-								</div>
-								<div
-									:style="{ fontFamily: bodyStack }"
-									class="text-[11px] mt-1.5 truncate"
-								>
-									{{ props.summary.recommended_fonts?.heading?.family || 'Заголовки' }}
-								</div>
-							</div>
-							<div
-								class="rounded-xl px-3.5 py-3"
-								:style="{ background: colors.secondary, color: colors.onSecondary }"
-							>
-								<div
-									:style="{ fontFamily: bodyStack, fontWeight: 700 }"
-									class="text-lg leading-none"
-								>
-									{{ palette.length }}
-								</div>
-								<div
-									:style="{ fontFamily: bodyStack }"
-									class="text-[11px] mt-1.5"
-								>
-									цвета в системе
-								</div>
-							</div>
-							<div
-								class="rounded-xl px-3.5 py-3"
-								:style="{ background: colors.accent, color: colors.onAccent }"
+								:style="tileStyle(i)"
 							>
 								<div
 									:style="{ fontFamily: bodyStack, fontWeight: 600 }"
-									class="text-sm leading-tight truncate"
+									class="text-sm leading-snug"
 								>
-									{{ props.summary.mood?.[1] || props.summary.mood?.[0] || 'Акцент' }}
+									{{ t.title }}
 								</div>
 								<div
+									v-if="t.text"
 									:style="{ fontFamily: bodyStack }"
-									class="text-[11px] mt-1.5"
+									class="text-[11px] mt-1.5 leading-snug opacity-90"
 								>
-									характер
+									{{ t.text }}
 								</div>
 							</div>
 						</div>
